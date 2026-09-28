@@ -261,7 +261,7 @@
                 renderChart(labels, dataPoints);
             });
 
-            // 3. 나에게 들어온 '대출 요청' 목록 (승인/거절)
+           // 3. 나에게 들어온 '대출 요청' 목록 (승인/거절)
             db.collection("loans").where("lenderId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const reqList = document.getElementById('loan-requests-list');
@@ -274,7 +274,11 @@
                         hasReqs = true;
                         const repayVal = data.repayAmount || data.amount;
                         reqList.innerHTML += `<li style="background: rgba(255,255,255,0.1); margin-bottom: 5px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px;">
-                            <span style="color: white; line-height: 1.4;"><strong>${data.borrowerName}</strong>님이 <strong>${data.amount}P</strong> 요청<br><small style="color: #f1c40f;">(나중에 <strong>${repayVal}P</strong>로 갚음)</small></span>
+                            <span style="color: white; line-height: 1.5;">
+                                <strong>${data.borrowerName}</strong>님의 협상 제안:<br>
+                                💸 당장 필요한 원금: <strong>${data.amount}P</strong><br>
+                                💰 나중에 갚을 금액: <strong style="color:#f1c40f;">${repayVal}P</strong>
+                            </span>
                             <div style="display:flex; gap:5px; width: 100%;">
                                 <button onclick="approveLoan('${doc.id}', '${data.borrowerId}', '${data.borrowerName}', ${data.amount}, ${repayVal})" style="flex: 1; background: #27ae60; padding: 5px; font-size:0.8em;">승인</button>
                                 <button onclick="rejectLoan('${doc.id}')" style="flex: 1; background: #e74c3c; padding: 5px; font-size:0.8em;">거절</button>
@@ -298,40 +302,16 @@
                         hasDebts = true;
                         const repayVal = data.repayAmount || data.amount;
                         debtsList.innerHTML += `<li style="background: rgba(255,255,255,0.1); margin-bottom: 5px;">
-                            <span style="color: white;">${data.lenderName}님에게 <strong>${repayVal}P</strong> 갚기<br><small style="color:#bdc3c7;">(빌린 원금: ${data.amount}P)</small></span>
+                            <span style="color: white;">
+                                ${data.lenderName}님에게 <strong>${repayVal}P</strong> 갚기<br>
+                                <small style="color:#bdc3c7;">(처음 빌렸던 원금: ${data.amount}P)</small>
+                            </span>
                             <button onclick="repayLoan('${doc.id}', '${data.lenderId}', '${data.lenderName}', ${repayVal})" style="background: #f39c12; padding: 5px; color: #fff;">갚기</button>
                         </li>`;
                     }
                 });
                 if (!hasDebts) debtsList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>갚을 포인트가 없습니다! 🎉</li>";
             });
-        }
-
-        function loadRankingAndTrade() {
-            db.collection("users").orderBy("points", "desc")
-            .onSnapshot((snapshot) => {
-                const rankingList = document.getElementById('ranking-list');
-                const tradeSelect = document.getElementById('trade-target');
-                
-                rankingList.innerHTML = "";
-                tradeSelect.innerHTML = '<option value="">대상 선택...</option>';
-                
-                let rank = 1;
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    if (data.status === "approved") {
-                        let rankIcon = rank === 1 ? "🥇" : (rank === 2 ? "🥈" : (rank === 3 ? "🥉" : rank));
-                        rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
-                        rank++;
-
-                        if (doc.id !== currentUser.uid) {
-                            tradeSelect.innerHTML += `<option value="${doc.id}">${data.name}</option>`;
-                        }
-                    }
-                });
-            });
-        }
-
         // [기능] 단순 선물하기
         async function transferPoints() {
             const targetUid = document.getElementById('trade-target').value;
