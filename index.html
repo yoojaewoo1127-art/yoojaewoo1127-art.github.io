@@ -62,6 +62,7 @@
             <div class="tab-btn active" onclick="showTab('tab-profile')">내 프로필</div>
             <div class="tab-btn" onclick="showTab('tab-ranking')">랭킹보드</div>
             <div class="tab-btn" onclick="showTab('tab-trade')">거래소</div>
+            <!-- 관리자 전용 탭 -->
             <div id="admin-tab-btn" class="tab-btn hidden" onclick="showTab('tab-admin')" style="background: #8e44ad;">관리자</div>
         </div>
 
@@ -107,8 +108,8 @@
                 <select id="trade-target">
                     <option value="">대상 선택...</option>
                 </select>
-                <input type="number" id="trade-amount" placeholder="선물하거나 빌릴 포인트 (원금)" min="1">
-                <input type="number" id="repay-amount" placeholder="갚을 포인트 (빌릴 때만 작성, 원금보다 크게)" min="1">
+                <input type="number" id="trade-amount" placeholder="선물하거나 당장 빌릴 포인트 (원금)" min="1">
+                <input type="number" id="repay-amount" placeholder="나중에 갚을 포인트 (빌릴 때만 작성, 원금보다 크게)" min="1">
                 
                 <div style="display: flex; gap: 5px; margin-top: 5px;">
                     <button onclick="transferPoints()" style="flex: 1; background: #27ae60;">그냥 선물하기</button>
@@ -132,7 +133,7 @@
     </div>
 
     <script>
-        // 🔴🔴🔴 여기에 본인의 Firebase 설정값을 다시 붙여넣으세요! 🔴🔴🔴
+        // 회원님의 진짜 Firebase 설정값 완벽 적용
         const firebaseConfig = {
             apiKey: "AIzaSyAjtKYu90c4n4BZyaS0DYM9zAMxo93E114",
             authDomain: "poker-c03bc.firebaseapp.com",
@@ -149,11 +150,21 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // 🔴🔴🔴 본인(관리자)의 구글 이메일 주소를 확인하세요! 🔴🔴🔴
+        // 관리자 이메일 적용
         const adminEmail = "yoojaewoo1127@gmail.com"; 
 
         let currentUser = null;
         let myChart = null; 
+
+        // 로그인 상태 확인 (페이지 튕김 방지 처리)
+        auth.getRedirectResult().then((result) => {
+            if (result.user) {
+                checkUserStatus(result.user);
+            }
+        }).catch((error) => {
+            console.error("로그인 에러:", error);
+            alert("로그인 중 문제가 발생했습니다: " + error.message);
+        });
 
         auth.onAuthStateChanged(async (user) => {
             if (user) {
@@ -166,14 +177,14 @@
             }
         });
 
+        // 팝업 차단을 우회하기 위한 리다이렉트(페이지 이동) 로그인 방식 적용
         function loginWithGoogle() {
             const provider = new firebase.auth.GoogleAuthProvider();
-            auth.signInWithPopup(provider);
+            auth.signInWithRedirect(provider);
         }
 
         function logout() {
-            auth.signOut();
-            location.reload();
+            auth.signOut().then(() => location.reload());
         }
 
         async function checkUserStatus(user) {
@@ -261,7 +272,7 @@
                 renderChart(labels, dataPoints);
             });
 
-           // 3. 나에게 들어온 '대출 요청' 목록 (승인/거절)
+            // 3. 나에게 들어온 '대출 요청' 목록 (승인/거절) - 문구 개선 완료
             db.collection("loans").where("lenderId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const reqList = document.getElementById('loan-requests-list');
@@ -289,7 +300,7 @@
                 if (!hasReqs) reqList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>도착한 요청이 없습니다.</li>";
             });
 
-            // 4. 내가 갚아야 할 빚 목록
+            // 4. 내가 갚아야 할 빚 목록 - 문구 개선 완료
             db.collection("loans").where("borrowerId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const debtsList = document.getElementById('my-debts-list');
@@ -312,6 +323,33 @@
                 });
                 if (!hasDebts) debtsList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>갚을 포인트가 없습니다! 🎉</li>";
             });
+        }
+
+        function loadRankingAndTrade() {
+            db.collection("users").orderBy("points", "desc")
+            .onSnapshot((snapshot) => {
+                const rankingList = document.getElementById('ranking-list');
+                const tradeSelect = document.getElementById('trade-target');
+                
+                rankingList.innerHTML = "";
+                tradeSelect.innerHTML = '<option value="">대상 선택...</option>';
+                
+                let rank = 1;
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.status === "approved") {
+                        let rankIcon = rank === 1 ? "🥇" : (rank === 2 ? "🥈" : (rank === 3 ? "🥉" : rank));
+                        rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
+                        rank++;
+
+                        if (doc.id !== currentUser.uid) {
+                            tradeSelect.innerHTML += `<option value="${doc.id}">${data.name}</option>`;
+                        }
+                    }
+                });
+            });
+        }
+
         // [기능] 단순 선물하기
         async function transferPoints() {
             const targetUid = document.getElementById('trade-target').value;
@@ -339,7 +377,7 @@
             }
         }
 
-        // [기능] 빌려달라고 요청하기 (상환액 추가)
+        // [기능] 빌려달라고 요청하기
         async function requestLoan() {
             const targetUid = document.getElementById('trade-target').value;
             const amount = parseInt(document.getElementById('trade-amount').value);
@@ -373,7 +411,7 @@
             const myDoc = await db.collection("users").doc(currentUser.uid).get();
             if (myDoc.data().points < amount) return alert("보유 포인트가 부족하여 빌려줄 수 없습니다.");
 
-            if (confirm(`${borrowerName}님의 요청 (원금: ${amount}P / 상환: ${repayAmount}P)을 승인하시겠습니까?`)) {
+            if (confirm(`${borrowerName}님의 요청 (당장 줄 돈: ${amount}P / 나중에 받을 돈: ${repayAmount}P)을 승인하시겠습니까?`)) {
                 const targetDoc = await db.collection("users").doc(borrowerId).get();
                 
                 await db.collection("users").doc(currentUser.uid).update({ points: myDoc.data().points - amount });
