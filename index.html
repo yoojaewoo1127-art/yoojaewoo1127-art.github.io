@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>업그레이드 랭킹보드</title>
-    <!-- Firebase v8 라이브러리 (안정적인 방식) -->
+    <title>게임 랭킹</title>
+    <!-- Firebase v8 라이브러리 -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -43,7 +43,16 @@
         </div>
     </div>
 
-    <!-- 2. 메인 앱 화면 -->
+    <!-- 2. 승인 대기 화면 -->
+    <div id="pending-box" class="box hidden">
+        <h3 style="text-align: center;">가입 신청 완료!</h3>
+        <p style="text-align: center;">관리자의 승인을 기다려주세요.</p>
+        <div style="text-align: center;">
+            <button onclick="logout()">로그아웃</button>
+        </div>
+    </div>
+
+    <!-- 3. 메인 앱 화면 -->
     <div id="app-box" class="box hidden">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h3 id="user-greeting" style="margin: 0;">환영합니다!</h3>
@@ -110,9 +119,12 @@
             </div>
         </div>
 
-        <!-- [탭 4] 관리자 전용 화면 -->
+        <!-- [탭 4] 관리자 전용 화면 (승인 대기 + 포인트 수정) -->
         <div id="tab-admin" class="tab-content hidden">
-            <h4 style="color: #f1c40f;">게임 포인트 일괄 업데이트</h4>
+            <h4 style="color: #f1c40f;">👤 가입 승인 대기 목록</h4>
+            <ul id="pending-users-list"></ul>
+            <hr style="margin: 20px 0;">
+            <h4 style="color: #f1c40f;">🎮 게임 포인트 일괄 업데이트</h4>
             <table>
                 <thead><tr><th>이름</th><th>현재 포인트</th><th>변동 (+/-)</th></tr></thead>
                 <tbody id="admin-points-list"></tbody>
@@ -122,7 +134,6 @@
     </div>
 
     <script>
-        // 회원님의 진짜 Firebase 설정값 적용
         const firebaseConfig = {
             apiKey: "AIzaSyAjtKYu90c4n4BZyaS0DYM9zAMxo93E114",
             authDomain: "poker-c03bc.firebaseapp.com",
@@ -145,7 +156,7 @@
         let myChart = null; 
         let isChecking = false;
 
-        // 로그인 상태 감지
+        // 로그인 고정 로직 (안정적인 인증 감지)
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
@@ -156,11 +167,11 @@
                 }
             } else {
                 document.getElementById('login-box').style.display = 'block';
+                document.getElementById('pending-box').style.display = 'none';
                 document.getElementById('app-box').style.display = 'none';
             }
         });
 
-        // 구글 로그인 팝업
         function loginWithGoogle() {
             const provider = new firebase.auth.GoogleAuthProvider();
             auth.signInWithPopup(provider).catch((error) => {
@@ -173,13 +184,13 @@
             auth.signOut().then(() => location.reload());
         }
 
+        // 유저 상태 확인 (승인제 적용)
         async function checkUserStatus(user) {
             try {
                 const userRef = db.collection("users").doc(user.uid);
                 const userDoc = await userRef.get();
                 
                 if (!userDoc.exists) {
-                    // 기존 계정이 없으면 신규 가입 진행
                     const realName = prompt("게임에서 사용할 멋진 닉네임을 입력해주세요:");
                     if (!realName || realName.trim() === "") { 
                         alert("닉네임을 입력해야 가입이 진행됩니다.");
@@ -187,8 +198,9 @@
                         return; 
                     }
                     
+                    // 최초 가입 시 status를 pending(대기)으로 설정
                     await userRef.set({
-                        name: realName, email: user.email, points: 200, status: "approved"
+                        name: realName, email: user.email, points: 200, status: "pending"
                     });
                     await db.collection("history").add({
                         uid: user.uid, change: 200, pointsAfter: 200, reason: "초기 가입 지원금", timestamp: firebase.firestore.FieldValue.serverTimestamp()
@@ -197,17 +209,15 @@
                 } else {
                     const userData = userDoc.data();
                     
-                    // 혹시 기존 계정의 status가 pending으로 되어있다면 즉시 approved로 자동 보정
-                    if (userData.status !== "approved") {
-                        await userRef.update({ status: "approved" });
-                        userData.status = "approved";
-                    }
-
-                    // 관리자 여부 확인 후 화면 로드
                     if (userData.email === adminEmail) {
                         document.getElementById('admin-tab-btn').style.display = 'block';
                         loadApp(userData, true);
-                    } else {
+                    } else if (userData.status === "pending") {
+                        // 승인 대기 중인 경우
+                        document.getElementById('login-box').style.display = 'none';
+                        document.getElementById('pending-box').style.display = 'block';
+                        document.getElementById('app-box').style.display = 'none';
+                    } else if (userData.status === "approved") {
                         loadApp(userData, false);
                     }
                 }
@@ -219,6 +229,7 @@
 
         function loadApp(userData, isAdmin) {
             document.getElementById('login-box').style.display = 'none';
+            document.getElementById('pending-box').style.display = 'none';
             document.getElementById('app-box').style.display = 'block';
             document.getElementById('user-greeting').innerText = userData.name + "님 환영합니다!";
             
@@ -235,7 +246,6 @@
         }
 
         function loadProfileData() {
-            // 1. 내 포인트 실시간 구독
             db.collection("users").doc(currentUser.uid).onSnapshot((doc) => {
                 if(doc.exists) {
                     const myPts = doc.data().points;
@@ -247,7 +257,6 @@
                 }
             });
 
-            // 2. 내 기록 실시간 구독 & 그래프
             db.collection("history").where("uid", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const historyList = document.getElementById('my-history-list');
@@ -274,7 +283,6 @@
                 renderChart(labels, dataPoints);
             });
 
-            // 3. 대출 요청 목록 실시간 구독
             db.collection("loans").where("lenderId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const reqList = document.getElementById('loan-requests-list');
@@ -302,7 +310,6 @@
                 if (!hasReqs) reqList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>도착한 요청이 없습니다.</li>";
             });
 
-            // 4. 내가 갚아야 할 빚 목록 실시간 구독
             db.collection("loans").where("borrowerId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const debtsList = document.getElementById('my-debts-list');
@@ -354,7 +361,6 @@
             });
         }
 
-        // [기능] 단순 선물하기
         async function transferPoints() {
             const targetUid = document.getElementById('trade-target').value;
             const amount = parseInt(document.getElementById('trade-amount').value);
@@ -383,7 +389,6 @@
             }
         }
 
-        // [기능] 빌려달라고 요청하기
         async function requestLoan() {
             const targetUid = document.getElementById('trade-target').value;
             const amount = parseInt(document.getElementById('trade-amount').value);
@@ -412,7 +417,6 @@
             }
         }
 
-        // [기능] 대출 요청 승인
         async function approveLoan(loanId, borrowerId, borrowerName, amount, repayAmount) {
             const myRef = db.collection("users").doc(currentUser.uid);
             const myDoc = await myRef.get();
@@ -433,14 +437,12 @@
             }
         }
 
-        // [기능] 대출 요청 거절
         async function rejectLoan(loanId) {
             if (confirm("이 요청을 거절하시겠습니까?")) {
                 await db.collection("loans").doc(loanId).update({ status: "rejected" });
             }
         }
 
-        // [기능] 빌린 돈 갚기
         async function repayLoan(loanId, lenderId, lenderName, repayAmount) {
             const myRef = db.collection("users").doc(currentUser.uid);
             const myDoc = await myRef.get();
@@ -461,8 +463,22 @@
             }
         }
 
-        // 관리자 패널
+        // 관리자 패널 (가입 대기 승인 + 포인트 수정)
         function loadAdminPanel() {
+            // 1. 가입 대기 목록
+            db.collection("users").where("status", "==", "pending").onSnapshot((snapshot) => {
+                const ul = document.getElementById('pending-users-list');
+                ul.innerHTML = "";
+                let count = 0;
+                snapshot.forEach((doc) => {
+                    count++;
+                    const data = doc.data();
+                    ul.innerHTML += `<li>${data.name} (${data.email}) <button onclick="approveUser('${doc.id}')" style="padding: 5px; font-size: 0.8em; background:#27ae60;">가입 승인</button></li>`;
+                });
+                if (count === 0) ul.innerHTML = "<li style='background: transparent; color: #bdc3c7; justify-content: center;'>승인 대기 중인 유저가 없습니다.</li>";
+            });
+
+            // 2. 포인트 수정 목록
             db.collection("users").where("status", "==", "approved").onSnapshot((snapshot) => {
                 const tbody = document.getElementById('admin-points-list');
                 tbody.innerHTML = "";
@@ -482,6 +498,11 @@
             });
         }
 
+        async function approveUser(uid) {
+            await db.collection("users").doc(uid).update({ status: "approved" });
+            alert("가입이 승인되었습니다!");
+        }
+
         async function adminUpdatePoints(uid, currentPoints) {
             const inputVal = document.getElementById(`admin-input-${uid}`).value;
             if (!inputVal) return;
@@ -495,7 +516,6 @@
             document.getElementById(`admin-input-${uid}`).value = ""; 
         }
 
-        // 그래프 렌더링
         function renderChart(labels, dataPoints) {
             const ctx = document.getElementById('myChart').getContext('2d');
             if (myChart) myChart.destroy(); 
