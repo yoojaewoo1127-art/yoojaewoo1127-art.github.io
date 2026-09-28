@@ -257,8 +257,10 @@
         }
 
         // 5. 랭킹보드 및 거래소 유저 목록 로드
+        // 5. 랭킹보드 및 거래소 유저 목록 로드 (인덱스 에러 해결 버전)
         function loadRankingAndTrade() {
-            db.collection("users").where("status", "==", "approved").orderBy("points", "desc")
+            // where("status", "==", "approved") 부분을 지워서 에러를 없앱니다.
+            db.collection("users").orderBy("points", "desc")
             .onSnapshot((snapshot) => {
                 const rankingList = document.getElementById('ranking-list');
                 const tradeSelect = document.getElementById('trade-target');
@@ -270,14 +272,17 @@
                 snapshot.forEach((doc) => {
                     const data = doc.data();
                     
-                    // 랭킹 리스트 추가
-                    let rankIcon = rank === 1 ? "🥇" : (rank === 2 ? "🥈" : (rank === 3 ? "🥉" : rank));
-                    rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
-                    rank++;
+                    // 자바스크립트 안에서 승인된 사람만 걸러내서 화면에 보여줍니다.
+                    if (data.status === "approved") {
+                        // 랭킹 리스트 추가
+                        let rankIcon = rank === 1 ? "🥇" : (rank === 2 ? "🥈" : (rank === 3 ? "🥉" : rank));
+                        rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
+                        rank++;
 
-                    // 거래소 리스트 추가 (본인 제외)
-                    if (doc.id !== currentUser.uid) {
-                        tradeSelect.innerHTML += `<option value="${doc.id}">${data.name}</option>`;
+                        // 거래소 리스트 추가 (본인 제외)
+                        if (doc.id !== currentUser.uid) {
+                            tradeSelect.innerHTML += `<option value="${doc.id}">${data.name}</option>`;
+                        }
                     }
                 });
             });
