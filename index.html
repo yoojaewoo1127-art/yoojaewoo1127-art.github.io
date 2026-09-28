@@ -16,7 +16,7 @@
         .box { background: #34495e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); margin-bottom: 20px; }
         button { background: #e67e22; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
         button:hover { background: #d35400; }
-        input, select { padding: 8px; border-radius: 5px; border: 1px solid #7f8c8d; background: #ecf0f1; color: #2c3e50; }
+        input, select { padding: 8px; border-radius: 5px; border: 1px solid #7f8c8d; background: #ecf0f1; color: #2c3e50; width: 100%; box-sizing: border-box; }
         .hidden { display: none; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #ecf0f1; color: #2c3e50; border-radius: 5px; overflow: hidden; }
         th, td { border-bottom: 1px solid #bdc3c7; padding: 10px; text-align: center; }
@@ -50,14 +50,14 @@
         <button onclick="logout()">로그아웃</button>
     </div>
 
-    <!-- 3. 메인 앱 화면 (탭 구조) -->
+    <!-- 3. 메인 앱 화면 -->
     <div id="app-box" class="box hidden">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h3 id="user-greeting" style="margin: 0;">환영합니다!</h3>
             <button onclick="logout()" style="background:#c0392b; padding: 5px 10px;">로그아웃</button>
         </div>
 
-        <!-- 탭 메뉴 버튼 -->
+        <!-- 탭 메뉴 -->
         <div class="tab-menu">
             <div class="tab-btn active" onclick="showTab('tab-profile')">내 프로필</div>
             <div class="tab-btn" onclick="showTab('tab-ranking')">랭킹보드</div>
@@ -73,9 +73,15 @@
                 <canvas id="myChart" height="150"></canvas>
             </div>
 
-            <!-- 빌린 돈(장부) 표시 영역 -->
+            <!-- 도착한 대출 요청 -->
+            <div style="background: #3498db; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                <h4 style="margin: 0 0 10px 0; color: white;">📬 도착한 대출 요청 (내가 빌려줄 돈)</h4>
+                <ul id="loan-requests-list" style="margin: 0; padding: 0; max-height: 150px; overflow-y: auto;"></ul>
+            </div>
+
+            <!-- 갚아야 할 포인트 -->
             <div style="background: #c0392b; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
-                <h4 style="margin: 0 0 10px 0; color: white;">🚨 내가 갚아야 할 포인트</h4>
+                <h4 style="margin: 0 0 10px 0; color: white;">🚨 내가 갚아야 할 포인트 (빌린 돈)</h4>
                 <ul id="my-debts-list" style="margin: 0; padding: 0; max-height: 150px; overflow-y: auto;"></ul>
             </div>
 
@@ -92,20 +98,21 @@
             </table>
         </div>
 
-        <!-- [탭 3] 포인트 거래소 (송금/빌려주기) -->
+        <!-- [탭 3] 포인트 거래소 -->
         <div id="tab-trade" class="tab-content hidden">
             <h4>💸 다른 유저와 거래하기</h4>
-            <p style="font-size: 0.9em; color: #bdc3c7;">친구에게 포인트를 선물하거나 빌려줄 수 있습니다.</p>
+            <p style="font-size: 0.9em; color: #bdc3c7;">포인트를 선물하거나, 필요한 만큼 빌려달라고 요청해보세요.</p>
             
             <div style="display: flex; flex-direction: column; gap: 10px;">
                 <select id="trade-target">
-                    <option value="">받을 사람 선택...</option>
+                    <option value="">대상 선택...</option>
                 </select>
-                <input type="number" id="trade-amount" placeholder="보낼 포인트 수량" min="1">
-                <label style="color: #ecf0f1; font-size: 0.9em; display: flex; align-items: center; gap: 5px;">
-                    <input type="checkbox" id="is-loan" style="width: auto;"> 그냥 선물이 아니라 '빌려주기' 입니다 (장부 기록)
-                </label>
-                <button onclick="transferPoints()">송금 / 빌려주기</button>
+                <input type="number" id="trade-amount" placeholder="포인트 수량" min="1">
+                
+                <div style="display: flex; gap: 5px; margin-top: 10px;">
+                    <button onclick="transferPoints()" style="flex: 1; background: #27ae60;">그냥 선물하기</button>
+                    <button onclick="requestLoan()" style="flex: 1; background: #c0392b;">빌려달라고 요청하기</button>
+                </div>
             </div>
         </div>
 
@@ -145,9 +152,8 @@
         const adminEmail = "yoojaewoo1127@gmail.com"; 
 
         let currentUser = null;
-        let myChart = null; // 그래프 변수
+        let myChart = null; 
 
-        // 1. 로그인 상태 감지
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
@@ -169,25 +175,18 @@
             location.reload();
         }
 
-        // 2. 유저 상태 확인 (가입 시 200P 기본 지급)
         async function checkUserStatus(user) {
             const userDoc = await db.collection("users").doc(user.uid).get();
-            
             if (!userDoc.exists) {
                 const realName = prompt("게임에서 사용할 멋진 닉네임을 입력해주세요:");
                 if (!realName) { auth.signOut(); return; }
                 
                 await db.collection("users").doc(user.uid).set({
-                    name: realName,
-                    email: user.email,
-                    points: 200, // 시작 포인트 200
-                    status: "pending"
+                    name: realName, email: user.email, points: 200, status: "pending"
                 });
-                
                 await db.collection("history").add({
                     uid: user.uid, change: 200, pointsAfter: 200, reason: "초기 가입 지원금", timestamp: firebase.firestore.FieldValue.serverTimestamp()
                 });
-                
                 location.reload();
             } else {
                 const userData = userDoc.data();
@@ -203,7 +202,6 @@
             }
         }
 
-        // 3. 앱 화면 로드 (탭 전환 기능 포함)
         function loadApp(userData, isAdmin) {
             document.getElementById('login-box').style.display = 'none';
             document.getElementById('pending-box').style.display = 'none';
@@ -222,14 +220,12 @@
             document.getElementById(tabId).style.display = 'block';
         }
 
-        // 4. 내 프로필 데이터 (수익률, 그래프, 빚 목록)
         function loadProfileData() {
-            // 포인트 및 수익률 실시간 업데이트
+            // 1. 내 포인트와 수익률
             db.collection("users").doc(currentUser.uid).onSnapshot((doc) => {
                 if(doc.exists) {
                     const myPts = doc.data().points;
                     document.getElementById('my-points').innerText = myPts.toLocaleString();
-                    
                     const yieldRate = (((myPts - 200) / 200) * 100).toFixed(1);
                     const yieldColor = yieldRate > 0 ? '#2ecc71' : (yieldRate < 0 ? '#e74c3c' : '#bdc3c7');
                     const yieldSign = yieldRate > 0 ? '+' : '';
@@ -237,18 +233,12 @@
                 }
             });
 
-            // 내 기록 실시간 로드 및 자바스크립트 정렬로 그래프 그리기 (에러 방지)
+            // 2. 내 기록 & 그래프
             db.collection("history").where("uid", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const historyList = document.getElementById('my-history-list');
-                historyList.innerHTML = "";
-                
                 let logs = [];
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    if (data.timestamp) logs.push(data);
-                });
-
+                snapshot.forEach((doc) => { if (doc.data().timestamp) logs.push(doc.data()); });
                 logs.sort((a, b) => a.timestamp.toDate() - b.timestamp.toDate());
 
                 const labels = [];
@@ -261,12 +251,7 @@
                     const changeStr = data.change > 0 ? `+${data.change}` : data.change;
                     const color = data.change > 0 ? '#2ecc71' : (data.change < 0 ? '#e74c3c' : '#ecf0f1');
 
-                    listHtml = `<li>
-                        <span style="font-size:0.8em; color:#bdc3c7;">${timeStr}</span> 
-                        <span>${data.reason}</span> 
-                        <strong style="color:${color};">${changeStr}</strong>
-                    </li>` + listHtml;
-
+                    listHtml = `<li><span style="font-size:0.8em; color:#bdc3c7;">${timeStr}</span> <span>${data.reason}</span> <strong style="color:${color};">${changeStr}</strong></li>` + listHtml;
                     labels.push(timeStr);
                     dataPoints.push(data.pointsAfter);
                 });
@@ -275,7 +260,30 @@
                 renderChart(labels, dataPoints);
             });
 
-            // 내 부채(빌린 내역) 실시간 로드 (인덱스 에러 방지용 자바스크립트 필터링)
+            // 3. 나에게 들어온 '대출 요청' 목록 (승인/거절)
+            db.collection("loans").where("lenderId", "==", currentUser.uid)
+            .onSnapshot((snapshot) => {
+                const reqList = document.getElementById('loan-requests-list');
+                reqList.innerHTML = "";
+                let hasReqs = false;
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.status === "pending") {
+                        hasReqs = true;
+                        reqList.innerHTML += `<li style="background: rgba(255,255,255,0.1); margin-bottom: 5px;">
+                            <span style="color: white;"><strong>${data.borrowerName}</strong>님이 <strong>${data.amount}P</strong> 요청</span>
+                            <div style="display:flex; gap:5px;">
+                                <button onclick="approveLoan('${doc.id}', '${data.borrowerId}', '${data.borrowerName}', ${data.amount})" style="background: #27ae60; padding: 5px; font-size:0.8em;">승인</button>
+                                <button onclick="rejectLoan('${doc.id}')" style="background: #e74c3c; padding: 5px; font-size:0.8em;">거절</button>
+                            </div>
+                        </li>`;
+                    }
+                });
+                if (!hasReqs) reqList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>도착한 요청이 없습니다.</li>";
+            });
+
+            // 4. 내가 갚아야 할 빚 목록
             db.collection("loans").where("borrowerId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const debtsList = document.getElementById('my-debts-list');
@@ -292,12 +300,10 @@
                         </li>`;
                     }
                 });
-
                 if (!hasDebts) debtsList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>갚을 포인트가 없습니다! 🎉</li>";
             });
         }
 
-        // 5. 랭킹보드 및 거래소 (인덱스 에러 방지 버전)
         function loadRankingAndTrade() {
             db.collection("users").orderBy("points", "desc")
             .onSnapshot((snapshot) => {
@@ -305,12 +311,11 @@
                 const tradeSelect = document.getElementById('trade-target');
                 
                 rankingList.innerHTML = "";
-                tradeSelect.innerHTML = '<option value="">받을 사람 선택...</option>';
+                tradeSelect.innerHTML = '<option value="">대상 선택...</option>';
                 
                 let rank = 1;
                 snapshot.forEach((doc) => {
                     const data = doc.data();
-                    
                     if (data.status === "approved") {
                         let rankIcon = rank === 1 ? "🥇" : (rank === 2 ? "🥈" : (rank === 3 ? "🥉" : rank));
                         rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
@@ -324,75 +329,104 @@
             });
         }
 
-        // 6. 거래 기능 (송금 및 빌려주기)
+        // [기능] 단순 선물하기
         async function transferPoints() {
             const targetUid = document.getElementById('trade-target').value;
             const amount = parseInt(document.getElementById('trade-amount').value);
-            const isLoan = document.getElementById('is-loan').checked;
             
-            if (!targetUid) return alert("받을 사람을 선택해주세요.");
+            if (!targetUid) return alert("대상을 선택해주세요.");
             if (isNaN(amount) || amount <= 0) return alert("올바른 금액을 입력해주세요.");
 
             const myDoc = await db.collection("users").doc(currentUser.uid).get();
-            const myName = myDoc.data().name;
-            const myPoints = myDoc.data().points;
-
-            if (myPoints < amount) return alert("보유한 포인트가 부족합니다!");
+            if (myDoc.data().points < amount) return alert("보유한 포인트가 부족합니다!");
 
             const targetDoc = await db.collection("users").doc(targetUid).get();
             const targetName = targetDoc.data().name;
-            const targetPoints = targetDoc.data().points;
 
-            const actionText = isLoan ? "빌려주시겠습니까? (상대방 프로필에 빚이 기록됩니다)" : "그냥 선물하시겠습니까?";
+            if (confirm(`${targetName}님에게 ${amount} 포인트를 선물하시겠습니까?`)) {
+                await db.collection("users").doc(currentUser.uid).update({ points: myDoc.data().points - amount });
+                await db.collection("users").doc(targetUid).update({ points: targetDoc.data().points + amount });
+                
+                await db.collection("history").add({ uid: currentUser.uid, change: -amount, pointsAfter: myDoc.data().points - amount, reason: `${targetName}에게 선물함`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+                await db.collection("history").add({ uid: targetUid, change: amount, pointsAfter: targetDoc.data().points + amount, reason: `${myDoc.data().name}님으로부터 선물받음`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
 
-            if (confirm(`${targetName}님에게 ${amount} 포인트를 ${actionText}`)) {
-                await db.collection("users").doc(currentUser.uid).update({ points: myPoints - amount });
-                await db.collection("users").doc(targetUid).update({ points: targetPoints + amount });
-
-                if (isLoan) {
-                    await db.collection("loans").add({
-                        lenderId: currentUser.uid, lenderName: myName,
-                        borrowerId: targetUid, borrowerName: targetName,
-                        amount: amount, status: "active",
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    await db.collection("history").add({ uid: currentUser.uid, change: -amount, pointsAfter: myPoints - amount, reason: `${targetName}에게 빌려줌`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-                    await db.collection("history").add({ uid: targetUid, change: amount, pointsAfter: targetPoints + amount, reason: `${myName}님에게 빌림`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-                } else {
-                    await db.collection("history").add({ uid: currentUser.uid, change: -amount, pointsAfter: myPoints - amount, reason: `${targetName}에게 선물함`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-                    await db.collection("history").add({ uid: targetUid, change: amount, pointsAfter: targetPoints + amount, reason: `${myName}님으로부터 선물받음`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-                }
-
-                alert("거래가 완료되었습니다!");
+                alert("선물이 완료되었습니다!");
                 document.getElementById('trade-amount').value = "";
-                document.getElementById('is-loan').checked = false;
             }
         }
 
-        // 7. 빌린 돈 갚기
+        // [기능] 빌려달라고 요청하기
+        async function requestLoan() {
+            const targetUid = document.getElementById('trade-target').value;
+            const amount = parseInt(document.getElementById('trade-amount').value);
+            
+            if (!targetUid) return alert("요청할 대상을 선택해주세요.");
+            if (isNaN(amount) || amount <= 0) return alert("올바른 금액을 입력해주세요.");
+
+            const targetDoc = await db.collection("users").doc(targetUid).get();
+            const targetName = targetDoc.data().name;
+
+            if (confirm(`${targetName}님에게 ${amount} 포인트를 빌려달라고 요청하시겠습니까?`)) {
+                const myDoc = await db.collection("users").doc(currentUser.uid).get();
+                
+                await db.collection("loans").add({
+                    lenderId: targetUid, lenderName: targetName,
+                    borrowerId: currentUser.uid, borrowerName: myDoc.data().name,
+                    amount: amount, status: "pending",
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                alert("요청이 전송되었습니다! 상대방이 프로필에서 승인하면 포인트가 들어옵니다.");
+                document.getElementById('trade-amount').value = "";
+            }
+        }
+
+        // [기능] 대출 요청 승인
+        async function approveLoan(loanId, borrowerId, borrowerName, amount) {
+            const myDoc = await db.collection("users").doc(currentUser.uid).get();
+            if (myDoc.data().points < amount) return alert("보유 포인트가 부족하여 빌려줄 수 없습니다.");
+
+            if (confirm(`${borrowerName}님의 요청(${amount}P)을 승인하고 빌려주시겠습니까?`)) {
+                const targetDoc = await db.collection("users").doc(borrowerId).get();
+                
+                await db.collection("users").doc(currentUser.uid).update({ points: myDoc.data().points - amount });
+                await db.collection("users").doc(borrowerId).update({ points: targetDoc.data().points + amount });
+                await db.collection("loans").doc(loanId).update({ status: "active", approvedAt: firebase.firestore.FieldValue.serverTimestamp() });
+
+                await db.collection("history").add({ uid: currentUser.uid, change: -amount, pointsAfter: myDoc.data().points - amount, reason: `${borrowerName}에게 빌려줌 (요청 승인)`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+                await db.collection("history").add({ uid: borrowerId, change: amount, pointsAfter: targetDoc.data().points + amount, reason: `${myDoc.data().name}님에게 빌림`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+
+                alert("승인 완료! 포인트가 전송되었습니다.");
+            }
+        }
+
+        // [기능] 대출 요청 거절
+        async function rejectLoan(loanId) {
+            if (confirm("이 요청을 거절하시겠습니까?")) {
+                await db.collection("loans").doc(loanId).update({ status: "rejected" });
+            }
+        }
+
+        // [기능] 빌린 돈 갚기
         async function repayLoan(loanId, lenderId, lenderName, amount) {
             const myDoc = await db.collection("users").doc(currentUser.uid).get();
-            const myPoints = myDoc.data().points;
-            const myName = myDoc.data().name;
-
-            if (myPoints < amount) return alert("현재 보유한 포인트가 부족하여 갚을 수 없습니다.");
+            if (myDoc.data().points < amount) return alert("현재 보유한 포인트가 부족하여 갚을 수 없습니다.");
 
             if (confirm(`${lenderName}님에게 빌린 ${amount} 포인트를 갚으시겠습니까?`)) {
                 const targetDoc = await db.collection("users").doc(lenderId).get();
-                const targetPoints = targetDoc.data().points;
 
-                await db.collection("users").doc(currentUser.uid).update({ points: myPoints - amount });
-                await db.collection("users").doc(lenderId).update({ points: targetPoints + amount });
+                await db.collection("users").doc(currentUser.uid).update({ points: myDoc.data().points - amount });
+                await db.collection("users").doc(lenderId).update({ points: targetDoc.data().points + amount });
                 await db.collection("loans").doc(loanId).update({ status: "repaid", repaidAt: firebase.firestore.FieldValue.serverTimestamp() });
 
-                await db.collection("history").add({ uid: currentUser.uid, change: -amount, pointsAfter: myPoints - amount, reason: `${lenderName}님에게 빌린 돈 갚음`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-                await db.collection("history").add({ uid: lenderId, change: amount, pointsAfter: targetPoints + amount, reason: `${myName}님이 빌려간 돈을 갚음`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+                await db.collection("history").add({ uid: currentUser.uid, change: -amount, pointsAfter: myDoc.data().points - amount, reason: `${lenderName}님에게 빌린 돈 갚음`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+                await db.collection("history").add({ uid: lenderId, change: amount, pointsAfter: targetDoc.data().points + amount, reason: `${myDoc.data().name}님이 빌려간 돈을 갚음`, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
 
                 alert("성공적으로 포인트를 갚았습니다!");
             }
         }
 
-        // 8. 관리자 기능 로드
+        // 관리자 기능
         function loadAdminPanel() {
             db.collection("users").where("status", "==", "pending").onSnapshot((snapshot) => {
                 const ul = document.getElementById('pending-users-list');
@@ -429,7 +463,6 @@
         async function adminUpdatePoints(uid, currentPoints, userName) {
             const inputVal = document.getElementById(`admin-input-${uid}`).value;
             if (!inputVal) return;
-            
             const changeAmount = parseInt(inputVal);
             const finalPoints = currentPoints + changeAmount;
             
@@ -437,11 +470,10 @@
             await db.collection("history").add({
                 uid: uid, change: changeAmount, pointsAfter: finalPoints, reason: "관리자 게임 결과 반영", timestamp: firebase.firestore.FieldValue.serverTimestamp()
             });
-
             document.getElementById(`admin-input-${uid}`).value = ""; 
         }
 
-        // 9. 그래프 그리기 (Chart.js)
+        // 그래프 렌더링
         function renderChart(labels, dataPoints) {
             const ctx = document.getElementById('myChart').getContext('2d');
             if (myChart) myChart.destroy(); 
