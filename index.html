@@ -1,9 +1,9 @@
-\<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>게임 랭킹</title>
+    <title>업그레이드 랭킹보드</title>
     <!-- Firebase v8 라이브러리 -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
@@ -52,7 +52,14 @@
         </div>
     </div>
 
-    <!-- 3. 메인 앱 화면 -->
+    <!-- 3. 밴(차단) 당한 화면 -->
+    <div id="banned-box" class="box hidden" style="background: #c0392b; text-align: center;">
+        <h3>🚫 이용이 제한된 계정입니다</h3>
+        <p>관리자에 의해 밴(차단)되었습니다.</p>
+        <button onclick="logout()" style="background: #34495e;">로그아웃</button>
+    </div>
+
+    <!-- 4. 메인 앱 화면 -->
     <div id="app-box" class="box hidden">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h3 id="user-greeting" style="margin: 0;">환영합니다!</h3>
@@ -75,9 +82,15 @@
                 <canvas id="myChart" height="150"></canvas>
             </div>
 
+            <!-- 새로 추가된 '내가 받을 돈' (빌려준 내역) -->
+            <div style="background: #27ae60; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                <h4 style="margin: 0 0 10px 0; color: white;">💵 내가 받을 돈 (빌려준 포인트)</h4>
+                <ul id="my-lend-list" style="margin: 0; padding: 0; max-height: 150px; overflow-y: auto;"></ul>
+            </div>
+
             <!-- 도착한 대출 요청 -->
             <div style="background: #3498db; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
-                <h4 style="margin: 0 0 10px 0; color: white;">📬 도착한 대출 요청 (내가 빌려줄 돈)</h4>
+                <h4 style="margin: 0 0 10px 0; color: white;">📬 도착한 대출 요청 (승인 대기)</h4>
                 <ul id="loan-requests-list" style="margin: 0; padding: 0; max-height: 150px; overflow-y: auto;"></ul>
             </div>
 
@@ -119,15 +132,15 @@
             </div>
         </div>
 
-        <!-- [탭 4] 관리자 전용 화면 (승인 대기 + 포인트 수정) -->
+        <!-- [탭 4] 관리자 전용 화면 (승인, 포인트 수정, 이름 변경, 밴 기능) -->
         <div id="tab-admin" class="tab-content hidden">
             <h4 style="color: #f1c40f;">👤 가입 승인 대기 목록</h4>
             <ul id="pending-users-list"></ul>
             <hr style="margin: 20px 0;">
-            <h4 style="color: #f1c40f;">🎮 게임 포인트 일괄 업데이트</h4>
+            <h4 style="color: #f1c40f;">🛡️ 유저 관리 (이름 변경 / 밴 / 포인트 수정)</h4>
             <table>
-                <thead><tr><th>이름</th><th>현재 포인트</th><th>변동 (+/-)</th></tr></thead>
-                <tbody id="admin-points-list"></tbody>
+                <thead><tr><th>이름</th><th>포인트</th><th>관리 작업</th></tr></thead>
+                <tbody id="admin-users-list"></tbody>
             </table>
         </div>
 
@@ -156,7 +169,7 @@
         let myChart = null; 
         let isChecking = false;
 
-        // 로그인 고정 로직 (안정적인 인증 감지)
+        // 로그인 고정 로직 (변경 금지 구역)
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
@@ -168,6 +181,7 @@
             } else {
                 document.getElementById('login-box').style.display = 'block';
                 document.getElementById('pending-box').style.display = 'none';
+                document.getElementById('banned-box').style.display = 'none';
                 document.getElementById('app-box').style.display = 'none';
             }
         });
@@ -184,7 +198,6 @@
             auth.signOut().then(() => location.reload());
         }
 
-        // 유저 상태 확인 (승인제 적용)
         async function checkUserStatus(user) {
             try {
                 const userRef = db.collection("users").doc(user.uid);
@@ -198,7 +211,6 @@
                         return; 
                     }
                     
-                    // 최초 가입 시 status를 pending(대기)으로 설정
                     await userRef.set({
                         name: realName, email: user.email, points: 200, status: "pending"
                     });
@@ -209,11 +221,19 @@
                 } else {
                     const userData = userDoc.data();
                     
+                    // 밴(차단) 상태 확인
+                    if (userData.status === "banned") {
+                        document.getElementById('login-box').style.display = 'none';
+                        document.getElementById('pending-box').style.display = 'none';
+                        document.getElementById('banned-box').style.display = 'block';
+                        document.getElementById('app-box').style.display = 'none';
+                        return;
+                    }
+
                     if (userData.email === adminEmail) {
                         document.getElementById('admin-tab-btn').style.display = 'block';
                         loadApp(userData, true);
                     } else if (userData.status === "pending") {
-                        // 승인 대기 중인 경우
                         document.getElementById('login-box').style.display = 'none';
                         document.getElementById('pending-box').style.display = 'block';
                         document.getElementById('app-box').style.display = 'none';
@@ -230,6 +250,7 @@
         function loadApp(userData, isAdmin) {
             document.getElementById('login-box').style.display = 'none';
             document.getElementById('pending-box').style.display = 'none';
+            document.getElementById('banned-box').style.display = 'none';
             document.getElementById('app-box').style.display = 'block';
             document.getElementById('user-greeting').innerText = userData.name + "님 환영합니다!";
             
@@ -281,6 +302,29 @@
                 
                 historyList.innerHTML = listHtml;
                 renderChart(labels, dataPoints);
+            });
+
+            // 내가 빌려준 돈 (받을 돈 목록) 실시간 로드
+            db.collection("loans").where("lenderId", "==", currentUser.uid)
+            .onSnapshot((snapshot) => {
+                const lendList = document.getElementById('my-lend-list');
+                lendList.innerHTML = "";
+                let hasLends = false;
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.status === "active") {
+                        hasLends = true;
+                        const repayVal = data.repayAmount || data.amount;
+                        lendList.innerHTML += `<li style="background: rgba(255,255,255,0.1); margin-bottom: 5px;">
+                            <span style="color: white;">
+                                <strong>${data.borrowerName}</strong>님에게 받을 돈: <strong style="color:#f1c40f;">${repayVal}P</strong><br>
+                                <small style="color:#bdc3c7;">(원금: ${data.amount}P)</small>
+                            </span>
+                        </li>`;
+                    }
+                });
+                if (!hasLends) lendList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>빌려준 돈이 없습니다.</li>";
             });
 
             db.collection("loans").where("lenderId", "==", currentUser.uid)
@@ -353,8 +397,8 @@
                         rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
                         rank++;
 
-                        if (data.id !== currentUser.uid) {
-                            tradeSelect.innerHTML += `<option value="${data.id}">${data.name}</option>`;
+                        if (doc.id !== currentUser.uid) {
+                            tradeSelect.innerHTML += `<option value="${doc.id}">${data.name}</option>`;
                         }
                     }
                 });
@@ -463,7 +507,7 @@
             }
         }
 
-        // 관리자 패널 (가입 대기 승인 + 포인트 수정)
+        // 관리자 패널 (승인 대기 + 포인트 수정 + 이름 변경 + 밴 기능)
         function loadAdminPanel() {
             // 1. 가입 대기 목록
             db.collection("users").where("status", "==", "pending").onSnapshot((snapshot) => {
@@ -478,19 +522,25 @@
                 if (count === 0) ul.innerHTML = "<li style='background: transparent; color: #bdc3c7; justify-content: center;'>승인 대기 중인 유저가 없습니다.</li>";
             });
 
-            // 2. 포인트 수정 목록
-            db.collection("users").where("status", "==", "approved").onSnapshot((snapshot) => {
-                const tbody = document.getElementById('admin-points-list');
+            // 2. 전체 유저 관리 목록 (포인트 수정, 이름 변경, 밴)
+            db.collection("users").onSnapshot((snapshot) => {
+                const tbody = document.getElementById('admin-users-list');
                 tbody.innerHTML = "";
                 snapshot.forEach((doc) => {
                     const data = doc.data();
+                    if (data.email === adminEmail) return; // 관리자 본인은 제외
+                    
                     tbody.innerHTML += `
                         <tr>
-                            <td style="color:#2c3e50;">${data.name}</td>
-                            <td style="color:#2c3e50;">${data.points}</td>
+                            <td style="color:#2c3e50; font-weight:bold;">${data.name}</td>
+                            <td style="color:#2c3e50;">${data.points}P</td>
                             <td>
-                                <input type="number" id="admin-input-${doc.id}" style="width:50px; padding:5px;" placeholder="+ / -">
-                                <button onclick="adminUpdatePoints('${doc.id}', ${data.points})" style="padding: 5px; background:#27ae60;">적용</button>
+                                <div style="display: flex; flex-direction: column; gap: 5px; padding: 5px;">
+                                    <input type="number" id="admin-input-${doc.id}" style="width:100%; padding:4px;" placeholder="포인트 +/-">
+                                    <button onclick="adminUpdatePoints('${doc.id}', ${data.points})" style="padding: 4px; background:#27ae60; font-size:0.8em;">포인트 적용</button>
+                                    <button onclick="adminChangeName('${doc.id}', '${data.name}')" style="padding: 4px; background:#2980b9; font-size:0.8em;">이름 변경</button>
+                                    <button onclick="adminBanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#c0392b; font-size:0.8em;">밴(차단)</button>
+                                </div>
                             </td>
                         </tr>
                     `;
@@ -514,6 +564,24 @@
                 uid: uid, change: changeAmount, pointsAfter: finalPoints, reason: "관리자 게임 결과 반영", timestamp: firebase.firestore.FieldValue.serverTimestamp()
             });
             document.getElementById(`admin-input-${uid}`).value = ""; 
+            alert("포인트가 수정되었습니다.");
+        }
+
+        // 강제 플레이어 이름 변경 기능
+        async function adminChangeName(uid, currentName) {
+            const newName = prompt(`"${currentName}" 유저의 새로운 닉네임을 입력하세요:`);
+            if (!newName || newName.trim() === "") return;
+
+            await db.collection("users").doc(uid).update({ name: newName.trim() });
+            alert(`닉네임이 "${newName.trim()}"(으)로 변경되었습니다!`);
+        }
+
+        // 밴(차단) 기능
+        async function adminBanUser(uid, userName) {
+            if (confirm(`정말로 "${userName}" 유저를 밴(차단)하시겠습니까? 접속이 차단됩니다.`)) {
+                await db.collection("users").doc(uid).update({ status: "banned" });
+                alert(`"${userName}" 유저가 차단되었습니다.`);
+            }
         }
 
         function renderChart(labels, dataPoints) {
