@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+]<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -132,7 +132,7 @@
             </div>
         </div>
 
-        <!-- [탭 4] 관리자 전용 화면 (승인, 포인트 수정, 이름 변경, 밴 기능) -->
+        <!-- [탭 4] 관리자 전용 화면 -->
         <div id="tab-admin" class="tab-content hidden">
             <h4 style="color: #f1c40f;">👤 가입 승인 대기 목록</h4>
             <ul id="pending-users-list"></ul>
@@ -147,6 +147,7 @@
     </div>
 
     <script>
+        // 회원님의 진짜 Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyAjtKYu90c4n4BZyaS0DYM9zAMxo93E114",
             authDomain: "poker-c03bc.firebaseapp.com",
@@ -167,22 +168,20 @@
 
         let currentUser = null;
         let myChart = null; 
-        let isChecking = false;
+        let isAppLoaded = false;
+        let userStatusUnsubscribe = null;
 
-        // 로그인 고정 로직 (변경 금지 구역)
-        auth.onAuthStateChanged(async (user) => {
+        // 로그인 감지 로직 (변형 없음)
+        auth.onAuthStateChanged((user) => {
             if (user) {
                 currentUser = user;
-                if (!isChecking) {
-                    isChecking = true;
-                    await checkUserStatus(user);
-                    isChecking = false;
-                }
+                monitorUserStatus(user);
             } else {
                 document.getElementById('login-box').style.display = 'block';
                 document.getElementById('pending-box').style.display = 'none';
                 document.getElementById('banned-box').style.display = 'none';
                 document.getElementById('app-box').style.display = 'none';
+                isAppLoaded = false;
             }
         });
 
@@ -198,12 +197,12 @@
             auth.signOut().then(() => location.reload());
         }
 
-        async function checkUserStatus(user) {
-            try {
-                const userRef = db.collection("users").doc(user.uid);
-                const userDoc = await userRef.get();
-                
-                if (!userDoc.exists) {
+        // 실시간 상태 감지로 새로고침 없이 화면 전환!
+        function monitorUserStatus(user) {
+            if (userStatusUnsubscribe) userStatusUnsubscribe();
+            
+            userStatusUnsubscribe = db.collection("users").doc(user.uid).onSnapshot(async (docSnap) => {
+                if (!docSnap.exists) {
                     const realName = prompt("게임에서 사용할 멋진 닉네임을 입력해주세요:");
                     if (!realName || realName.trim() === "") { 
                         alert("닉네임을 입력해야 가입이 진행됩니다.");
@@ -211,17 +210,17 @@
                         return; 
                     }
                     
-                    await userRef.set({
-                        name: realName, email: user.email, points: 200, status: "pending"
+                    // 최초 가입 시 관리자는 자동 승인, 일반 유저는 대기 상태 부여
+                    const isAdm = user.email === adminEmail;
+                    await db.collection("users").doc(user.uid).set({
+                        name: realName, email: user.email, points: 200, status: isAdm ? "approved" : "pending"
                     });
                     await db.collection("history").add({
                         uid: user.uid, change: 200, pointsAfter: 200, reason: "초기 가입 지원금", timestamp: firebase.firestore.FieldValue.serverTimestamp()
                     });
-                    location.reload();
                 } else {
-                    const userData = userDoc.data();
+                    const userData = docSnap.data();
                     
-                    // 밴(차단) 상태 확인
                     if (userData.status === "banned") {
                         document.getElementById('login-box').style.display = 'none';
                         document.getElementById('pending-box').style.display = 'none';
@@ -230,23 +229,27 @@
                         return;
                     }
 
+                    // 관리자의 상태가 꼬여서 랭킹에 안 뜨는 것을 방지
                     if (userData.email === adminEmail) {
+                        if (userData.status !== "approved") {
+                            await db.collection("users").doc(user.uid).update({ status: "approved" });
+                            return; // 업데이트 후 자동 재호출됨
+                        }
                         document.getElementById('admin-tab-btn').style.display = 'block';
                         loadApp(userData, true);
                     } else if (userData.status === "pending") {
                         document.getElementById('login-box').style.display = 'none';
                         document.getElementById('pending-box').style.display = 'block';
+                        document.getElementById('banned-box').style.display = 'none';
                         document.getElementById('app-box').style.display = 'none';
                     } else if (userData.status === "approved") {
                         loadApp(userData, false);
                     }
                 }
-            } catch (error) {
-                console.error("유저 확인 에러:", error);
-                alert("데이터를 불러오는 중 문제가 발생했습니다.");
-            }
+            });
         }
 
+        // 앱 화면 로드 (중복 실행 방지)
         function loadApp(userData, isAdmin) {
             document.getElementById('login-box').style.display = 'none';
             document.getElementById('pending-box').style.display = 'none';
@@ -254,9 +257,12 @@
             document.getElementById('app-box').style.display = 'block';
             document.getElementById('user-greeting').innerText = userData.name + "님 환영합니다!";
             
-            loadProfileData();
-            loadRankingAndTrade();
-            if(isAdmin) loadAdminPanel();
+            if (!isAppLoaded) {
+                isAppLoaded = true;
+                loadProfileData();
+                loadRankingAndTrade();
+                if(isAdmin) loadAdminPanel();
+            }
         }
 
         function showTab(tabId) {
@@ -304,7 +310,7 @@
                 renderChart(labels, dataPoints);
             });
 
-            // 내가 빌려준 돈 (받을 돈 목록) 실시간 로드
+            // 받을 돈 (빌려준 돈 목록) 실시간 로드
             db.collection("loans").where("lenderId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const lendList = document.getElementById('my-lend-list');
@@ -397,8 +403,8 @@
                         rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
                         rank++;
 
-                        if (doc.id !== currentUser.uid) {
-                            tradeSelect.innerHTML += `<option value="${doc.id}">${data.name}</option>`;
+                        if (data.id !== currentUser.uid) {
+                            tradeSelect.innerHTML += `<option value="${data.id}">${data.name}</option>`;
                         }
                     }
                 });
@@ -507,9 +513,8 @@
             }
         }
 
-        // 관리자 패널 (승인 대기 + 포인트 수정 + 이름 변경 + 밴 기능)
+        // 관리자 패널
         function loadAdminPanel() {
-            // 1. 가입 대기 목록
             db.collection("users").where("status", "==", "pending").onSnapshot((snapshot) => {
                 const ul = document.getElementById('pending-users-list');
                 ul.innerHTML = "";
@@ -517,19 +522,22 @@
                 snapshot.forEach((doc) => {
                     count++;
                     const data = doc.data();
-                    ul.innerHTML += `<li>${data.name} (${data.email}) <button onclick="approveUser('${doc.id}')" style="padding: 5px; font-size: 0.8em; background:#27ae60;">가입 승인</button></li>`;
+                    ul.innerHTML += `<li>${data.name} <button onclick="approveUser('${doc.id}')" style="padding: 5px; font-size: 0.8em; background:#27ae60;">가입 승인</button></li>`;
                 });
                 if (count === 0) ul.innerHTML = "<li style='background: transparent; color: #bdc3c7; justify-content: center;'>승인 대기 중인 유저가 없습니다.</li>";
             });
 
-            // 2. 전체 유저 관리 목록 (포인트 수정, 이름 변경, 밴)
             db.collection("users").onSnapshot((snapshot) => {
                 const tbody = document.getElementById('admin-users-list');
                 tbody.innerHTML = "";
                 snapshot.forEach((doc) => {
                     const data = doc.data();
-                    if (data.email === adminEmail) return; // 관리자 본인은 제외
+                    if (data.email === adminEmail || data.status === "pending") return;
                     
+                    const banBtnHtml = data.status === "banned" 
+                        ? `<button onclick="adminUnbanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#f39c12; font-size:0.8em;">밴 해제</button>`
+                        : `<button onclick="adminBanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#c0392b; font-size:0.8em;">밴(차단)</button>`;
+
                     tbody.innerHTML += `
                         <tr>
                             <td style="color:#2c3e50; font-weight:bold;">${data.name}</td>
@@ -539,7 +547,7 @@
                                     <input type="number" id="admin-input-${doc.id}" style="width:100%; padding:4px;" placeholder="포인트 +/-">
                                     <button onclick="adminUpdatePoints('${doc.id}', ${data.points})" style="padding: 4px; background:#27ae60; font-size:0.8em;">포인트 적용</button>
                                     <button onclick="adminChangeName('${doc.id}', '${data.name}')" style="padding: 4px; background:#2980b9; font-size:0.8em;">이름 변경</button>
-                                    <button onclick="adminBanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#c0392b; font-size:0.8em;">밴(차단)</button>
+                                    ${banBtnHtml}
                                 </div>
                             </td>
                         </tr>
@@ -567,7 +575,6 @@
             alert("포인트가 수정되었습니다.");
         }
 
-        // 강제 플레이어 이름 변경 기능
         async function adminChangeName(uid, currentName) {
             const newName = prompt(`"${currentName}" 유저의 새로운 닉네임을 입력하세요:`);
             if (!newName || newName.trim() === "") return;
@@ -576,11 +583,17 @@
             alert(`닉네임이 "${newName.trim()}"(으)로 변경되었습니다!`);
         }
 
-        // 밴(차단) 기능
         async function adminBanUser(uid, userName) {
-            if (confirm(`정말로 "${userName}" 유저를 밴(차단)하시겠습니까? 접속이 차단됩니다.`)) {
+            if (confirm(`정말로 "${userName}" 유저를 밴(차단)하시겠습니까? 즉시 게임에서 튕기며 접속이 차단됩니다.`)) {
                 await db.collection("users").doc(uid).update({ status: "banned" });
                 alert(`"${userName}" 유저가 차단되었습니다.`);
+            }
+        }
+        
+        async function adminUnbanUser(uid, userName) {
+            if (confirm(`"${userName}" 유저의 차단을 해제하시겠습니까?`)) {
+                await db.collection("users").doc(uid).update({ status: "approved" });
+                alert(`"${userName}" 유저의 차단이 해제되었습니다.`);
             }
         }
 
