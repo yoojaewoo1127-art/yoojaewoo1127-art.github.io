@@ -1,4 +1,4 @@
-]<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -29,6 +29,12 @@
         
         ul { list-style: none; padding: 0; }
         li { background: #2c3e50; margin-bottom: 5px; padding: 10px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;}
+
+        /* 유저 프로필 팝업(모달) 디자인 */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: #2c3e50; padding: 25px; border-radius: 10px; width: 85%; max-width: 350px; color: #ecf0f1; position: relative; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .close-btn { position: absolute; top: 10px; right: 15px; cursor: pointer; font-size: 1.5em; font-weight: bold; color: #e74c3c; }
+        .close-btn:hover { color: #c0392b; }
     </style>
 </head>
 <body>
@@ -106,7 +112,7 @@
 
         <!-- [탭 2] 랭킹보드 -->
         <div id="tab-ranking" class="tab-content hidden">
-            <h4>📊 전체 유저 랭킹</h4>
+            <h4>📊 전체 유저 랭킹 <span style="font-size:0.6em; font-weight:normal; color:#bdc3c7;">(이름을 클릭하면 프로필을 볼 수 있습니다)</span></h4>
             <table>
                 <thead><tr><th>순위</th><th>이름</th><th>포인트</th></tr></thead>
                 <tbody id="ranking-list"></tbody>
@@ -146,8 +152,21 @@
 
     </div>
 
+    <!-- 🔍 타 유저 프로필 조회 팝업 (모달) -->
+    <div id="user-profile-modal" class="modal-overlay">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeUserProfile()">&times;</span>
+            <h3 id="modal-user-name" style="text-align: center; color: #f1c40f; margin-top: 5px; border-bottom: 1px solid #7f8c8d; padding-bottom: 10px;">유저 이름</h3>
+            <div style="text-align: center; margin: 20px 0;">
+                <p style="margin: 5px 0; color: #bdc3c7;">현재 보유 포인트</p>
+                <p style="margin: 0;"><strong id="modal-user-points" style="font-size: 2em; color: #fff;">0</strong> <span style="font-size: 1.2em; color: #fff;">P</span></p>
+                <p id="modal-user-yield" style="margin-top: 5px; font-weight: bold;"></p>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // 회원님의 진짜 Firebase 설정
+        // 회원님의 진짜 Firebase 설정 (그대로 유지)
         const firebaseConfig = {
             apiKey: "AIzaSyAjtKYu90c4n4BZyaS0DYM9zAMxo93E114",
             authDomain: "poker-c03bc.firebaseapp.com",
@@ -171,7 +190,7 @@
         let isAppLoaded = false;
         let userStatusUnsubscribe = null;
 
-        // 로그인 감지 로직 (변형 없음)
+        // 로그인 감지 로직 (변경 절대 금지 구역)
         auth.onAuthStateChanged((user) => {
             if (user) {
                 currentUser = user;
@@ -197,7 +216,6 @@
             auth.signOut().then(() => location.reload());
         }
 
-        // 실시간 상태 감지로 새로고침 없이 화면 전환!
         function monitorUserStatus(user) {
             if (userStatusUnsubscribe) userStatusUnsubscribe();
             
@@ -210,7 +228,6 @@
                         return; 
                     }
                     
-                    // 최초 가입 시 관리자는 자동 승인, 일반 유저는 대기 상태 부여
                     const isAdm = user.email === adminEmail;
                     await db.collection("users").doc(user.uid).set({
                         name: realName, email: user.email, points: 200, status: isAdm ? "approved" : "pending"
@@ -229,11 +246,10 @@
                         return;
                     }
 
-                    // 관리자의 상태가 꼬여서 랭킹에 안 뜨는 것을 방지
                     if (userData.email === adminEmail) {
                         if (userData.status !== "approved") {
                             await db.collection("users").doc(user.uid).update({ status: "approved" });
-                            return; // 업데이트 후 자동 재호출됨
+                            return; 
                         }
                         document.getElementById('admin-tab-btn').style.display = 'block';
                         loadApp(userData, true);
@@ -249,7 +265,6 @@
             });
         }
 
-        // 앱 화면 로드 (중복 실행 방지)
         function loadApp(userData, isAdmin) {
             document.getElementById('login-box').style.display = 'none';
             document.getElementById('pending-box').style.display = 'none';
@@ -310,7 +325,7 @@
                 renderChart(labels, dataPoints);
             });
 
-            // 받을 돈 (빌려준 돈 목록) 실시간 로드
+            // 내가 받을 돈
             db.collection("loans").where("lenderId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const lendList = document.getElementById('my-lend-list');
@@ -333,6 +348,7 @@
                 if (!hasLends) lendList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>빌려준 돈이 없습니다.</li>";
             });
 
+            // 대출 요청
             db.collection("loans").where("lenderId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const reqList = document.getElementById('loan-requests-list');
@@ -360,6 +376,7 @@
                 if (!hasReqs) reqList.innerHTML = "<li style='background: transparent; justify-content: center; color: #ecf0f1;'>도착한 요청이 없습니다.</li>";
             });
 
+            // 갚을 빚
             db.collection("loans").where("borrowerId", "==", currentUser.uid)
             .onSnapshot((snapshot) => {
                 const debtsList = document.getElementById('my-debts-list');
@@ -400,7 +417,13 @@
                 users.forEach((data) => {
                     if (data.status === "approved") {
                         let rankIcon = rank === 1 ? "🥇" : (rank === 2 ? "🥈" : (rank === 3 ? "🥉" : rank));
-                        rankingList.innerHTML += `<tr><td style="color:#2c3e50;">${rankIcon}</td><td style="color:#2c3e50; font-weight:bold;">${data.name}</td><td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td></tr>`;
+                        
+                        // 이름 클릭 시 팝업 띄우도록 수정
+                        rankingList.innerHTML += `<tr>
+                            <td style="color:#2c3e50;">${rankIcon}</td>
+                            <td style="color:#2980b9; font-weight:bold; cursor:pointer; text-decoration:underline;" onclick="showUserProfile('${data.id}')">${data.name}</td>
+                            <td style="color:#e67e22; font-weight:bold;">${data.points.toLocaleString()}</td>
+                        </tr>`;
                         rank++;
 
                         if (data.id !== currentUser.uid) {
@@ -409,6 +432,27 @@
                     }
                 });
             });
+        }
+
+        // 유저 프로필 모달 띄우기 기능 추가
+        async function showUserProfile(uid) {
+            const userDoc = await db.collection("users").doc(uid).get();
+            if (userDoc.exists) {
+                const data = userDoc.data();
+                document.getElementById('modal-user-name').innerText = data.name + " 님의 정보";
+                document.getElementById('modal-user-points').innerText = data.points.toLocaleString();
+                
+                const yieldRate = (((data.points - 200) / 200) * 100).toFixed(1);
+                const yieldColor = yieldRate > 0 ? '#2ecc71' : (yieldRate < 0 ? '#e74c3c' : '#bdc3c7');
+                const yieldSign = yieldRate > 0 ? '+' : '';
+                document.getElementById('modal-user-yield').innerHTML = `<span style="color:${yieldColor};">(수익률: ${yieldSign}${yieldRate}%)</span>`;
+                
+                document.getElementById('user-profile-modal').style.display = 'flex';
+            }
+        }
+
+        function closeUserProfile() {
+            document.getElementById('user-profile-modal').style.display = 'none';
         }
 
         async function transferPoints() {
@@ -513,7 +557,6 @@
             }
         }
 
-        // 관리자 패널
         function loadAdminPanel() {
             db.collection("users").where("status", "==", "pending").onSnapshot((snapshot) => {
                 const ul = document.getElementById('pending-users-list');
@@ -527,16 +570,22 @@
                 if (count === 0) ul.innerHTML = "<li style='background: transparent; color: #bdc3c7; justify-content: center;'>승인 대기 중인 유저가 없습니다.</li>";
             });
 
+            // 관리자 본인도 명단에 포함되도록 수정 (단, 밴만 못하게 처리)
             db.collection("users").onSnapshot((snapshot) => {
                 const tbody = document.getElementById('admin-users-list');
                 tbody.innerHTML = "";
                 snapshot.forEach((doc) => {
                     const data = doc.data();
-                    if (data.email === adminEmail || data.status === "pending") return;
+                    if (data.status === "pending") return;
                     
-                    const banBtnHtml = data.status === "banned" 
-                        ? `<button onclick="adminUnbanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#f39c12; font-size:0.8em;">밴 해제</button>`
-                        : `<button onclick="adminBanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#c0392b; font-size:0.8em;">밴(차단)</button>`;
+                    let banBtnHtml = "";
+                    if (data.email === adminEmail) {
+                        banBtnHtml = `<button disabled style="padding: 4px; background:#7f8c8d; font-size:0.8em; cursor:not-allowed;">본인 밴 불가</button>`;
+                    } else if (data.status === "banned") {
+                        banBtnHtml = `<button onclick="adminUnbanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#f39c12; font-size:0.8em;">밴 해제</button>`;
+                    } else {
+                        banBtnHtml = `<button onclick="adminBanUser('${doc.id}', '${data.name}')" style="padding: 4px; background:#c0392b; font-size:0.8em;">밴(차단)</button>`;
+                    }
 
                     tbody.innerHTML += `
                         <tr>
